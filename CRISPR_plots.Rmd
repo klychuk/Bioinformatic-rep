@@ -1,0 +1,584 @@
+---
+title: "rmarkdown"
+author: "Karson Lychuk"
+date: "4/14/2020"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+library(readxl)
+library(dplyr)
+library(ggpubr)
+library(ggExtra)
+library(VennDiagram)
+library(tidyverse)
+library(forcats)
+cpm <- read.csv("CPM.csv", header = T)
+sgLH <- read.csv("sgrna_LH.csv")
+sgHL <- read.csv("sgrna_HL.csv")
+gene_stat <- read.csv("genes.csv", header = T)
+gene2 <- read.csv("genes2.csv", header = T)
+gene1 <- select(gene_stat, gene_stat$LogFC, gene_stat$pp_a)
+head(gene2)
+head(gene_stat)
+geneC<- rbind(gene1,gene2)
+```
+
+
+CRISPR HL
+```{r}
+gene_index <- c(row_number(gene_stat$logFC))
+gene_stat$gene <- as.character(gene_stat$gene)
+gene_stat$con <- ifelse(gene_stat$n_sgrna == 500, "Control", "Experimental")
+gene_stat$con <- as.factor(gene_stat$con)
+summary(gene_stat)
+
+a <- ggplot(gene_stat, aes(gene_index, logFC)) +
+  geom_point() +
+  ggtitle("Gene Log Fold High/Low ") +
+  ylab("log fold change")+
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_text_repel(
+    aes(gene_index, logFC, label = ifelse(logFC < -1.5, gene, NA)),
+     direction = "y",
+    nudge_x = 500,
+    segment.size = .2,
+    color = "darkgreen")+
+    geom_text_repel(
+    aes(gene_index, logFC, label = ifelse(logFC > .8, gene, NA)),
+     direction = "y",
+    nudge_x = -500,
+    segment.size = .2,
+    color = "red")+
+  theme_classic()
+
+ggMarginal(a, type = "histogram")
+  
+
+```
+
+CRISPR LH
+```{r}
+gene2 <- gene2[order(gene2$logFC),]
+index2<- c(row_number(gene2$logFC))
+gene2$gene <- as.character(gene2$gene)
+summary(gene2)
+
+ggplot(gene2, aes(index2, logFC)) +
+  geom_point()+
+  ggtitle("Gene Log Fold Low/High") +
+  ylab("log fold change")+
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme_classic()+
+  geom_text_repel(
+    aes(index2, logFC, label = ifelse(logFC < -.8, gene, NA)),
+    direction = "y",
+    nudge_x = 250,
+    segment.size = .2,
+    size = 2,
+    color = "99cc00")+
+    geom_text_repel(
+    aes(index2, logFC, label = ifelse(logFC > 2, gene, NA)),
+    direction = "y",
+    nudge_x = -250,
+    segment.size = .2,
+    size = 2,
+    color = "orange") 
+
+```
+
+Volcano Plots
+```{r}
+gene_stat$logPa <- -log(gene_stat$p_pa)
+gene_stat$logPb <- - log(gene_stat$p_pb)
+gene_stat$sig <- ifelse(gene_stat$logPa > 4, "Sig", "NotSig")
+
+
+#log p_a 
+cvol<- ggplot(gene_stat, aes(logFC, logPa))+
+  geom_point(aes(color = sig))+
+  scale_color_manual(values = c("grey", "red")) +
+  ggtitle("Original Volcano")+ 
+  ylab("-log(P)")+
+  geom_text_repel(
+    data = subset(gene_stat, logPa > 4),
+    aes(label = gene),
+    nudge_y = 1,
+    size = 2,
+    segment.size = .2,
+     point.padding = (.3),
+  )+ theme_minimal() 
+
+#p_b volcano
+gene_stat$sig1 <- ifelse(gene_stat$logPb > 4, "Sig", "NotSig")
+
+dvol <- ggplot(gene_stat, aes(logFC, logPb))+
+  geom_point(aes(color = sig1))+
+  scale_color_manual(values = c("grey", "red"))+
+    geom_text_repel(aes(logFC, logPb, label = ifelse(logPb>4,gene,NA)),
+    direction = 'y',
+    nudge_x = -2,
+    point.padding = (.3),
+    size = 2,
+    segment.size = .2)+
+  ggtitle("Volcano plot of B p-value")+
+  theme_bw()+ ylim(0,11.5)
+
+#p-values w/o LogFC
+bp <- ggplot(gene_stat, aes(gene_index, logPa))+
+  geom_point(aes(color = sig))+
+  geom_text_repel(aes(gene_index, logPa, label = ifelse(logPa > 5,gene,NA)), size = 2)+
+  scale_color_manual(values = c("grey", "red"))+ theme_bw()
+
+#combined
+a1 <- select(gene_stat,
+             gene,
+             logPb,
+             sig1,
+             logFC)
+b1  <- select(gene_stat,
+             gene,
+             logPa,
+             sig,
+             logFC)
+
+colnames(a1)<- c("gene", "loG", "sig", "logFC")
+colnames(b1)<- c("gene", "loG", "sig", "logFC")
+combined <- rbind(b1,a1)
+
+ggplot(data = combined, aes(x = logFC, y =loG))+
+  geom_point(aes(color = sig))+
+  scale_color_manual(values = c("grey", "red"))+
+    geom_text_repel(aes(logFC, loG, label = ifelse(loG>4,gene,NA)),
+    nudge_y = 1,
+    segment.size = .2,
+    size = 2,
+    point.padding = (.5))+
+  ggtitle("Significance Plot")+
+  ylim(0,12)+
+  xlim(-4,4)+
+  theme_bw()
+
+```
+
+Arranging on one page
+```{r}
+PLOT <- ggarrange(aLH, bp, cvol, dvol,labels = c("A","B","C","D"), ncol = 2, nrow = 2)
+ggsave("CRISPRplot.pdf", plot = PLOT)
+
+ABPLOT <- ggarrange(one,two,three,four, labels = c("A","B","C","D"), ncol = 2, nrow = 2)
+ggsave("AverseB.pdf", plot = ABPLOT)
+
+TRI <- ggarrange(cvol, Avol, Bvol)
+ggsave("AB_volcano.pdf", plot = TRI)
+
+BVOL <- ggarrange(dvol,ABvol, BBvol)
+ggsave("volcano-plot_B.pdf", plot = BVOL)
+```
+CPM violin plots
+```{r}
+
+C1 <- as.data.frame(cpm$ControlR1)
+C1$cat <- "Control_1"
+colnames(C1) <- c("num", "cat")
+head(cpm)
+C2 <- as.data.frame(cpm$Controlr2)
+C2$cat <- "Control_2"
+colnames(C2) <- c("num", "cat")
+
+L1 <- as.data.frame(cpm$Low1)
+L1$cat <- "Low_1"
+colnames(L1) <- c("num", "cat")
+
+L2 <- as.data.frame(cpm$Low2)
+L2$cat <- "Low_2"
+colnames(L2) <- c("num", "cat")
+
+H1 <- as.data.frame(cpm$High1)
+H1$cat <- "High_1"
+colnames(H1) <- c("num", "cat")
+
+H2 <- as.data.frame(cpm$High2)
+H2$cat <- "High_2"
+colnames(H2) <- c("num", "cat")
+
+
+
+entire <- rbind(C1,C2,L1,L2,H1,H2)
+colnames(H2) <- c("num", "cat")
+
+ggplot(entire, aes(num,cat))+
+  geom_violin()+
+  xlab("Count Per Million")+ylab("Samples")+ ggtitle("Count per Million distribution")+
+  geom_boxplot(width=0.1)
+  stat_summary(fun.y = mean, shape = 23)
+  
+```
+
+Including the A/B samples
+B-Low
+```{r}
+B_low <- read.csv("cpm_bLow.csv")
+
+L3 <- as.data.frame(B_low$Low3B)
+L3$cat <- "Low_3"
+colnames(L3) <- c("num", "cat")
+
+H3 <- as.data.frame(B_low$High3A)
+H3$cat <- "High_3"
+colnames(H3) <- c("num", "cat")
+
+mean(H3$num)
+
+e <- rbind(C1,C2,L1,L2,L3,H1,H2,H3)
+
+ggplot(e, aes(num,cat))+
+  geom_violin()+
+  xlab("Count Per Million")+ylab("Samples")+ ggtitle("Count per Million distribution")+
+  geom_boxplot(width=0.1)+
+   geom_vline(xintercept = 85)
+  stat_summary(fun.y = mean, shape = 23)
+ 
+  ggplot(e, aes(cat,num))+
+  geom_violin()+
+  xlab("Count Per Million")+ylab("Samples")+ ggtitle("Count per Million distribution B-Low")+
+  geom_boxplot(width=0.1)+
+  theme_classic()+
+  geom_hline(yintercept = 85, linetype = 2)
+
+  
+############################################
+b_low <- read.csv("gene_statB.csv")
+
+geneb <- c(row_number(b_low$gene))
+b_low$logPa <- -log(b_low$p_pa)
+b_low$sig <- ifelse(b_low$logPa > 5.1, "Sig", "NotSig")
+gene2$gene <- as.character(gene2$gene)
+b_low$gene <- as.character(b_low$gene)
+
+one <- ggplot(b_low, aes(genei, logPa))+
+  geom_point(aes(color = sig))+
+  geom_text_repel(aes(gene_index, logPa, label = ifelse(logPa > 5,gene,NA)), size = 2)+
+  scale_color_manual(values = c("grey", "red"))+ theme_bw()+
+  ggtitle("P-values including Sample B as Low")
+
+
+b_low <- b_low[order(b_low$logFC),]
+two <- ggplot(b_low, aes(geneb, logFC)) +
+  geom_point() +
+  ggtitle("LogFC B in Low") +
+  ylab("log fold change")+
+  geom_hline(yintercept = 0, linetype = 2)+
+  geom_text_repel(
+    aes(genea, logFC, label = ifelse(logFC < -.6, gene, NA)))+
+    geom_text_repel(
+    aes(genea, logFC, label = ifelse(logFC > 2, gene, NA)))+
+    theme_classic()
+
+b_low$sig <- ifelse(b_low$logPa > 5, "Sig", "NotSig")
+Bvol<- ggplot(b_low, aes(logFC, logPa))+
+  geom_point(aes(color = sig))+
+  scale_color_manual(values = c("grey", "red")) +
+  ggtitle("Volcano B in Low")+
+  ylab("-log(P)")+
+  geom_text_repel(
+    data = subset(b_low, logPa > 5),
+    aes(label = gene),
+    nudge_y = 1,
+    size = 2,
+    segment.size = .2,
+     point.padding = (.3),
+  )+ theme_minimal() 
+
+
+b_low$logPb <- - log(b_low$p_pb)
+b_low$sig1 <- ifelse(b_low$logPb > 5.1, "Sig", "NotSig")
+
+BBvol <- ggplot(b_low, aes(logFC, logPb))+
+  geom_point(aes(color = sig1))+
+  scale_color_manual(values = c("grey", "red"))+
+    geom_text_repel(aes(logFC, logPb, label = ifelse(logPb>5.1,gene,NA)),
+    direction = 'y',
+    nudge_x = -2,
+    point.padding = (.3),
+    size = 2,
+    segment.size = .2)+
+  ggtitle("B in Low")+
+  theme_bw()+ ylim(0,11.5)
+  
+    
+
+```
+HighB
+
+```{r}
+
+b_high <- read.csv("gene_statA.csv")
+
+genea <- c(row_number(b_high$gene))
+b_high$logPa <- -log(b_high$p_pa)
+b_high$sig <- ifelse(b_high$logPa > 5, "Sig", "NotSig")
+b_high$gene <- as.character(b_high$gene)
+
+three <- ggplot(b_high, aes(genea, logPa))+
+  geom_point(aes(color = sig))+
+  geom_text_repel(aes(gene_index, logPa, label = ifelse(logPa > 5,gene,NA)), size = 2)+
+  scale_color_manual(values = c("grey", "red"))+ theme_bw()+
+  ggtitle("P-values Sample B as High")
+
+b_high <- b_high[order(b_high$logFC),]
+four <-ggplot(b_high, aes(genea, logFC)) +
+  geom_point() +
+  ggtitle("LogFC A in Low") +
+  ylab("log fold change")+
+  geom_hline(yintercept = 0, linetype = 2)+
+  geom_text_repel(
+    aes(geneb, logFC, label = ifelse(logFC < -.9, gene, NA)))+
+    geom_text_repel(
+    aes(geneb, logFC, label = ifelse(logFC > 2, gene, NA)))+
+    theme_classic()
+
+b_high$sig <- ifelse(b_high$logPa > 5, "Sig", "NotSig")
+Avol<- ggplot(b_high, aes(logFC, logPa))+
+  geom_point(aes(color = sig))+
+  scale_color_manual(values = c("grey", "red")) +
+  ggtitle("Volcano b in high")+ 
+  ylab("-log(P)")+
+  geom_text_repel(
+    data = subset(b_high, logPa > 5),
+    aes(label = gene),
+    nudge_y = 1,
+    size = 2,
+    segment.size = .2,
+     point.padding = (.3),
+  )+ theme_minimal() 
+
+
+b_high$logPb <- - log(b_high$p_pb)
+b_high$sig1 <- ifelse(b_high$logPb > 5.1, "Sig", "NotSig")
+
+ABvol <- ggplot(b_high, aes(logFC, logPb))+
+  geom_point(aes(color = sig1))+
+  scale_color_manual(values = c("grey", "red"))+
+    geom_text_repel(aes(logFC, logPb, label = ifelse(logPb>5.1,gene,NA)),
+    direction = 'y',
+    nudge_x = -2,
+    point.padding = (.3),
+    size = 2,
+    segment.size = .2)+
+  ggtitle("B in High")+
+  theme_bw()
+
+```
+
+
+comparison venn diagram 
+```{r}
+gs_ordered <-  gene2[order(gene2$logFC),][1:100,]%>%
+  select(gene) %>% unlist()
+a_ordered <- b_high[order(b_high$logFC),][1:100,]%>%
+  select(gene) %>% unlist()
+b_ordered <- b_low[order(b_low$logFC),][1:100,]%>%
+  select(gene) %>% unlist()
+
+
+venn.diagram(
+ x = list(gs_ordered, a_ordered, b_ordered),
+ category.names = c("2 Replicates" , "B in High" , "B in Low"),
+ filename = 'Replicate_comparison.png',
+ output=TRUE,
+ col=c("#440154ff", '#21908dff', '#fde725ff'),
+fill = c(alpha("#440154ff",0.3), alpha('#21908dff',0.3), alpha('#fde725ff',0.3)),
+fontfamily = "sans",
+cat.fontfamily = "sans",
+          cat.col = c("#440154ff", '#21908dff', '#fde725ff')
+)
+
+vFC1 <- filter(gene2,
+                     logFC > 1) %>% 
+  select(gene)%>%
+  unlist()
+vFC2 <- filter(b_high,
+               logFC > 1)%>%
+  select(gene)%>%
+  unlist()
+vFC3 <- filter(b_low,
+               logFC > 1)%>%
+    select(gene)%>%
+  unlist()
+
+venn.diagram(
+ x = list(vFC1, vFC2, vFC3),
+ category.names = c("2 Replicates" , "B in High" , "B in Low"),
+ filename = 'Replicate_comparisonLG1.png',
+  output=TRUE,
+  col=c("#440154ff", '#21908dff', '#fde725ff'),
+  fill = c(alpha("#440154ff",0.3), alpha('#21908dff',0.3), alpha('#fde725ff',0.3)),
+  fontfamily = "sans",
+  cat.fontfamily = "sans",
+  cat.col = c("#440154ff", '#21908dff', '#fde725ff'))
+
+```
+
+
+Stuff from Mazhar
+```{r}
+sgLH$sgRNA <- as.character(sgLH$sgRNA)
+
+sgLH %>% 
+  filter(p_pb < 0.002)
+
+sgLH %>% 
+  filter(p_pa < 0.005)
+
+controls<-sgLH%>%
+  arrange(logFC) %>%
+  mutate(rankVec1 = seq(1,nrow(sgLH)), newy= "1")%>%
+  filter(gene == "Control")
+
+CD274<-sgLH%>%
+  arrange(logFC) %>%
+  mutate(rankVec1 = seq(1,nrow(sgLH)), newy= "1")%>%
+  filter(gene == "CD274")
+
+IFNGR2<-sgLH%>%
+  arrange(logFC) %>%
+  mutate(rankVec1 = seq(1,nrow(sgLH)), newy= "1")%>%
+  filter(gene == "IFNGR2")
+
+
+heat_sg<-sgLH%>%
+  arrange(logFC) %>%
+  mutate(rankVec1 = seq(1,nrow(sgLH)), newy= "1")%>%
+ggplot(aes(x=logFC, y= newy))+
+  geom_linerange(aes(x=logFC, y= newy, ymin=0, ymax=1, xmin=-10, xmax=10),
+                 position = position_jitter(height = 0L, seed = 1L), color = "Grey", size=20, alpha = .5)+
+  geom_linerange(data = controls, aes(x=logFC, y= newy, ymin=0, ymax=1,  xmin=-10, xmax=10),
+                 position = position_jitter(height = 0L, seed = 1L), color = "Black", alpha=0.05)+
+  geom_linerange(data = CD274, aes(x=logFC, y= newy, ymin=0, ymax=1,  xmin=-10, xmax=10),
+               position = position_jitter(height = 0L, seed = 1L), color = "Red", size =0.75)+
+  geom_linerange(data = IFNGR2, aes(x=logFC, y= newy, ymin=0, ymax=1, xmin=-10, xmax=10),
+                 position = position_jitter(height = 0L, seed = 1L), color = "Blue", size = 0.75)+
+  geom_text_repel(data = CD274,  aes(x = logFC, y = newy, label = sgRNA ),
+                  direction = "x",
+                  hjust = 0,
+                  size = 3,
+                  nudge_y = 1,
+                  nudge_x = -10,
+                  segment.size = 0.1, 
+                  color = "Red")+
+   geom_text_repel(data = IFNGR2,  aes(x = logFC, y = newy, label = sgRNA ),
+                  direction = "x",
+                  hjust = 0,
+                  size = 3,
+                  nudge_y = 0.1,
+                  segment.size = 0.1, 
+                  color = "Blue")+
+  theme_classic() +
+  ggtitle("Distribution og sgRNAs")+
+  xlab("sgRNA Log FC")
+
+```
+
+
+```{r}
+
+hi_lo <- sgHL %>%
+  filter(logFC > 2)
+hi_lo$gene <- droplevels(hi_lo$gene)
+b <- table(hi_lo$gene)
+a <- as.data.frame(b)
+
+
+ggplot(a, aes(Var1, Freq))+
+  geom_bar(stat = "identity")+
+  theme_classic()
+
+a <- filter(a, Freq > 1)
+a$per <- (a$Freq / 7) *100
+
+a%>%
+  mutate(Var1 = fct_reorder(Var1, -Freq))%>%
+  ggplot(aes(Var1, Freq))+
+  geom_bar(stat = "identity", size = 10)+
+  theme_classic()+
+  ylim(0,8)+
+  ggtitle("Genes with >1 sgRNAs with logFC>2")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  xlab("Genes")+ ylab("# of sgRNAs")
+
+  
+c<- a[order(a$per),]
+
+
+ggplot(a, aes(Var1, Freq))+
+  geom_bar(stat = "identity")+
+  theme_classic()+
+  ylim(0,7)
+
+```
+scatter of top sgRNAs
+
+```{r}
+sgHL <- read.csv("sgrna_HL.csv")
+
+#isolates the highest sgRNA
+top <- sgHL%>%
+  group_by(gene)%>%
+  filter(logFC == max(logFC))
+
+#gathers all but the highest
+rm_Max <- sgHL%>%
+  group_by(gene)%>%
+  filter(logFC != max(logFC))
+
+#takes highest of the subset aka the second highest
+second <- rm_Max%>%
+    group_by(gene)%>%
+    filter(logFC == max(logFC))
+
+#select out essential stuff & rename
+second <- select(second, sgRNA, gene, logFC)
+colnames(second) <- c("sgRNA2", "gene", "logFC2")
+
+#merge the datasets together
+whole<- merge(top, second, by = "gene")
+
+CD274<-whole%>%
+  filter(gene == "CD274")
+
+IFNGR2<-whole%>%
+  filter(gene == "IFNGR2")
+
+IFNGR1<-whole%>%
+  filter(gene == "IFNGR1")
+
+JAK1<-whole%>%
+  filter(gene == "JAK1")
+
+ggplot(whole, aes(logFC2, logFC))+
+  geom_point()+
+  geom_point(data = JAK1, aes(logFC2, logFC), 
+             color= '#21908dff')+
+   geom_point(data = IFNGR1, aes(logFC2, logFC), 
+             color= '#21908dff')+
+   geom_point(data = IFNGR2, aes(logFC2, logFC), 
+             color= '#21908dff')+
+   geom_point(data = CD274, aes(logFC2, logFC), 
+             color= '#21908dff')+
+  geom_text_repel(data = JAK1, aes(logFC2, logFC, label = gene),
+                  color= '#21908dff',
+                  nudge_y = -.3)+
+  geom_text_repel(data = IFNGR1, aes(logFC2, logFC, label = gene), 
+                  color= '#21908dff',
+                  nudge_y = -.3)+
+  geom_text_repel(data = IFNGR2, aes(logFC2, logFC, label = gene), 
+                  color= '#21908dff')+
+  geom_text_repel(data = CD274, aes(logFC2, logFC, label = gene), 
+                  color= '#21908dff',
+                  nudge_x = .2)+
+  theme_classic()+
+  ggtitle("Gene's top 2 sgRNA log fold changes")+ xlab("2nd highest sgRNA log fold change") + ylab("high sgRNA log fold change")
+```
